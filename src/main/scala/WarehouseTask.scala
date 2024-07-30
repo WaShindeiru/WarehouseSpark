@@ -1,12 +1,11 @@
 package org.grid
 
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.sql.{DataFrame, SparkSession, functions}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{DateType, DoubleType, IntegerType, LongType, StringType, StructType, TimestampType}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import java.sql.Timestamp
-import java.sql.Date
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 

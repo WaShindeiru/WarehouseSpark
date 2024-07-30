@@ -42,8 +42,6 @@ object DataGenerator {
 
     val df2 = sc.parallelize(sequence2).toDF("positionId", "amount", "time")
 
-//    df1.write.csv("./warehouse")
-//    df2.write.csv("./amount")
     (df1, df2)
   }
 

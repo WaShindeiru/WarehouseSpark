@@ -1,12 +1,11 @@
 package org.grid
 
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql._
 
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import scala.util.Random
-import org.apache.spark.sql._
 
 object RandomGenerator {
 
@@ -53,7 +52,6 @@ object RandomGenerator {
     df1.write.csv("./warehouse")
     df2.write.csv("./amount")
 
-    //    df1.select("positionId", "warehouse", "product", "eventTime").write.format("avro").save("./here.avro")
   }
 }
 
