@@ -2,12 +2,9 @@ package org.grid
 
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.functions.col
 import org.scalatest.funsuite.AnyFunSuite
 
 class WarehouseTaskTest extends AnyFunSuite {
-
-  Logger.getLogger("org").setLevel(Level.ERROR)
 
   val spark = SparkSession
     .builder
@@ -15,81 +12,85 @@ class WarehouseTaskTest extends AnyFunSuite {
     .master("local[*]")
     .getOrCreate()
 
-  test("simple test case") {
-    val (response1, response2) = WarehouseTask.computeDataFrames(spark, "./src/test/resources/warehouse.csv", "./src/test/resources/amount.csv")
+  val sc = spark.sparkContext
+  sc.setLogLevel("WARN")
 
-    response1.show
-    response2.show
+  Logger.getLogger("org").setLevel(Level.ERROR)
 
-    val response1c = response1.collect
-    assert(response1c(0).getAs[Double]("amount") == 13.73)
-    assert(response1c(2).getAs[Double]("amount") == 12.44)
-    assert(response1c(4).getAs[Double]("amount") == 51.87)
-    assert(response1c(7).getAs[Double]("amount") == 19.75)
-    assert(response1c(11).getAs[Double]("amount") == 70.14)
-    assert(response1c(24).getAs[Double]("amount") == 80.73)
-    assert(response1c(26).getAs[Double]("amount") == 53.68)
-    assert(response1c(17).getAs[Double]("amount") == 13.97)
-    assert(response1c(18).getAs[Double]("amount") == 55.59)
-    assert(response1c(25).getAs[Double]("amount") == 88.63)
-    assert(response1c(28).getAs[Double]("amount") == 70.31)
-    assert(response1c(29).getAs[Double]("amount") == 83.68)
+  import spark.implicits._
 
-    val w1p2 = response2.filter(col("warehouse") === "W-1" && col("product") === "P-2").collect().head
-    assert(w1p2.getAs[Double]("max_amount") == 57.58)
-    assert(w1p2.getAs[Double]("min_amount") == 39.53)
-    assert(w1p2.getAs[Double]("avg_amount") == 49.66)
+  test("test result1 result2, multiple amount for one position") {
 
-    val w2p1 = response2.filter(col("warehouse") === "W-2" && col("product") === "P-1").collect().head
-    assert(w2p1.getAs[Double]("max_amount") == 85.22)
-    assert(w2p1.getAs[Double]("min_amount") == 19.75)
-    assert(w2p1.getAs[Double]("avg_amount") == 52.49)
+    val testWarehouse = sc.parallelize(
+      Seq((1, "W-1", "P-2", "20240805104649"), (2, "W-1", "P-2", "20240805100649"), (3, "W-2", "P-2", "20240805102649"),
+        (4, "W-2", "P-1", "20240805083649"), (5, "W-3", "P-2", "20240805095649"), (6, "W-3", "P-2", "20240805100649"))
+    ).toDF("positionId", "warehouse", "product", "time")
 
-    val w4p2 = response2.filter(col("warehouse") === "W-4" && col("product") === "P-2").collect().head
-    assert(w4p2.getAs[Double]("max_amount") == 86.59)
-    assert(w4p2.getAs[Double]("min_amount") == 5.6)
-    assert(w4p2.getAs[Double]("avg_amount") == 57.64)
+    val testAmount = sc.parallelize(
+      Seq((1, 55.88, "20240805080642"), (1, 86.13, "20240805100647"), (1, 17.53, "20240805093723"), (2, 74.81, "20240805100709"),
+        (2, 34.65, "20240805105721"), (3, 91.03, "20240805094625"), (4, 86.44, "20240805094656"), (5, 14.34, "20240805112705"),
+        (5, 89.27, "20240805081625"), (5, 66.36, "20240805103701"), (6, 34.13, "20240805093630"), (6, 49.15, "20240805102652"))
+    ).toDF("positionId", "amount", "time")
 
-    val w1p1 = response2.filter(col("warehouse") === "W-1" && col("product") === "P-1").collect().head
-    assert(w1p1.getAs[Double]("max_amount") == 91.08)
-    assert(w1p1.getAs[Double]("min_amount") == 13.73)
-    assert(w1p1.getAs[Double]("avg_amount") == 52.41)
+    println("Test warehouse DataFrame:")
+    testWarehouse.show
+    println("Test amount DataFrame:")
+    testAmount.show
 
-    val w7p3 = response2.filter(col("warehouse") === "W-7" && col("product") === "P-3").collect().head
-    assert(w7p3.getAs[Double]("max_amount") == 83.68)
-    assert(w7p3.getAs[Double]("min_amount") == 70.31)
-    assert(w7p3.getAs[Double]("avg_amount") == 77.0)
+    val (result1, result2) = WarehouseTask.computeDataFrames(spark, testWarehouse, testAmount)
+
+    val expectedResult1 = sc.parallelize(
+      Seq((1, "W-1", "P-2", 86.13), (2, "W-1", "P-2", 34.65), (3, "W-2", "P-2", 91.03), (4, "W-2", "P-1", 86.44),
+        (5, "W-3", "P-2", 14.34), (6, "W-3", "P-2", 49.15))
+    ).toDF("positionId", "warehouse", "product", "amount")
+
+    val expectedResult2 = sc.parallelize(
+      Seq(("W-1", "P-2", 86.13, 34.65, 60.39), ("W-2", "P-1", 86.44, 86.44, 86.44), ("W-2", "P-2", 91.03, 91.03, 91.03),
+        ("W-3", "P-2", 49.15, 14.34, 31.74))
+    ).toDF("warehouse", "product", "max_amount", "min_amount", "avg_amount")
+
+    println("Expected result1:")
+    expectedResult1.show
+    println("Expected result2:")
+    expectedResult2.show
+
+    assert(result1.collect sameElements expectedResult1.collect)
+    assert(result2.collect sameElements expectedResult2.collect)
   }
 
-  test("missing amount columns") {
-    val (response1, response2) = WarehouseTask.computeDataFrames(spark, "./src/test/resources/warehouse2.csv", "./src/test/resources/amount2.csv")
+  test("test result1 result2, missing amounts") {
 
-    assert(response1.filter(col("positionId") === 1).collect.head.getAs[Double]("amount") == 17.52)
-    assert(response1.filter(col("positionId") === 2).collect.head.getAs[Double]("amount") == 57.13)
-    assert(response1.filter(col("positionId") === 6).collect.head.getAs[Double]("amount") == 47.41)
-    assert(response1.filter(col("positionId") === 11).collect.head.getAs[Double]("amount") == 58.02)
-    assert(response1.filter(col("positionId") === 14).collect.head.getAs[Double]("amount") == 3.29)
-    assert(response1.filter(col("positionId") === 16).collect.head.getAs[Double]("amount") == 98.42)
-    assert(response1.filter(col("positionId") === 4).collect.head.getAs[Double]("amount") == 78.38)
+    val testWarehouse = sc.parallelize(
+      Seq((1, "W-1", "P-2", "20240805132805"), (2, "W-1", "P-2", "20240805105805"), (3, "W-2", "P-1", "20240805115805"),
+        (4, "W-3", "P-2", "20240805125805"), (5, "W-3", "P-2", "20240805101805"), (6, "W-4", "P-1", "20240805122805"))
+    ).toDF("positionId", "warehouse", "product", "time")
 
-    val w2p3 = response2.filter(col("warehouse") === "W-2" && col("product") === "P-3").collect().head
-    assert(w2p3.getAs[Double]("max_amount") == 85.98)
-    assert(w2p3.getAs[Double]("min_amount") == 51.99)
-    assert(w2p3.getAs[Double]("avg_amount") == 72.12)
+    val testAmount = sc.parallelize(
+      Seq((1, 31.85, "20240805110755"), (1, 30.6, "20240805113749"), (1, 59.41, "20240805103759"), (3, 16.77, "20240805110818"),
+        (4, 24.21, "20240805115742"), (5, 17.0, "20240805131743"), (5, 65.75, "20240805105836"))
+    ).toDF("positionId", "amount", "time")
 
-    val w2p2 = response2.filter(col("warehouse") === "W-2" && col("product") === "P-2").collect().head
-    assert(w2p2.getAs[Double]("max_amount") == 94.07)
-    assert(w2p2.getAs[Double]("min_amount") == 47.41)
-    assert(w2p2.getAs[Double]("avg_amount") == 70.74)
+    println("Test warehouse DataFrame:")
+    testWarehouse.show
+    println("Test amount DataFrame:")
+    testAmount.show
 
-    val w4p1 = response2.filter(col("warehouse") === "W-4" && col("product") === "P-1").collect().head
-    assert(w4p1.getAs[Double]("max_amount") == 51.37)
-    assert(w4p1.getAs[Double]("min_amount") == 14.54)
-    assert(w4p1.getAs[Double]("avg_amount") == 32.96)
+    val (result1, result2) = WarehouseTask.computeDataFrames(spark, testWarehouse, testAmount)
 
-    val w4p3 = response2.filter(col("warehouse") === "W-4" && col("product") === "P-3").collect().head
-    assert(w4p3.getAs[Double]("max_amount") == 58.02)
-    assert(w4p3.getAs[Double]("min_amount") == 3.29)
-    assert(w4p3.getAs[Double]("avg_amount") == 30.66)
+    val expectedResult1 = sc.parallelize(
+      Seq((1, "W-1", "P-2", 30.6), (3, "W-2", "P-1", 16.77), (4, "W-3", "P-2", 24.21), (5, "W-3", "P-2", 17.0))
+    ).toDF("positionId", "warehouse", "product", "amount")
+
+    val expectedResult2 = sc.parallelize(
+      Seq(("W-1", "P-2", 30.6, 30.6, 30.6), ("W-2", "P-1", 16.77, 16.77, 16.77), ("W-3", "P-2", 24.21, 17.0, 20.61))
+    ).toDF("warehouse", "product", "max_amount", "min_amount", "avg_amount")
+
+    println("Expected result1:")
+    expectedResult1.show
+    println("Expected result2:")
+    expectedResult2.show
+
+    assert(result1.collect sameElements expectedResult1.collect)
+    assert(result2.collect sameElements expectedResult2.collect)
   }
 }
